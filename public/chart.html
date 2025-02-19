@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Visualisation de données boursières</title>
+    <style>
+        .container { margin: 2px; }
+        .axis path { stroke: #555; }
+        /* .grid line { stroke: #eee; } */
+        .main-line { 
+            fill: none;
+            stroke: steelblue; 
+            stroke-width: 1.5;
+            fill: rgb(105, 179, 162);
+            fill-opacity: 0.3;
+        }
+        .right-line {
+            fill: none;
+            stroke: #ff9900;
+            stroke-width: 1.5;
+        }
+        .open-line {
+            stroke: #222;
+            stroke-width: 1px;
+        }
+        .vertical {
+            stroke: #aaa;
+            stroke-width: 1px;
+        }
+        .vertical-text {
+            stroke:#FFF;
+            stroke-width:0.5em;
+            fill:black;
+            paint-order:stroke;
+            stroke-linejoin:round
+        }
+        .close-line {
+            stroke: #222;
+            stroke-width: 1px;
+        }
+        .candlestick-cursor { 
+            stroke-width: 2px;
+            pointer-events: none;
+        }
+        .overlay { fill: none; pointer-events: all; }
+        .ohlc-text { 
+            font-size: 7px;
+            fill: #222;
+            font-family: Arial;
+            stroke:#FFF;
+            stroke-width:0.3em;
+            paint-order:stroke;
+            stroke-linejoin:round
+        }
+        .axis-right text {
+            fill: #ff9900;
+        }
+        .axis-left text {
+            fill: steelblue;
+        }
+        .axis text {
+            font-size: 9px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Ajout du sélecteur de série -->
+        <select id="series-select" class="series-selector">
+            <option value="Open">Open</option>
+            <option value="Close" selected>Close</option>
+            <option value="High">High</option>
+            <option value="Low">Low</option>
+        </select>
+        <div id="chart"></div>
+    </div>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+        // Configuration initiale
+        const width = window.innerWidth * 0.9;
+        const height = 500;
+        const margin = { top: 10, right: 30, bottom: 20, left: 30 };
+
+        // Création du conteneur SVG
+        const svg = d3.select("#chart")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Définir le clipPath
+        svg.append("defs").append("clipPath")
+            .attr("id", "clip")
+            .append("rect")
+            .attr("width", width - margin.left - margin.right)
+            .attr("height", height - margin.top - margin.bottom);
+
+        // Échelles et axes initiaux
+        const xScale = d3.scaleTime().range([0, width - margin.left - margin.right]);
+        const xScale2 = xScale.copy();
+        const yScaleLeft = d3.scaleLinear().range([height - margin.top - margin.bottom, 0]);
+        const yScaleRight = d3.scaleLinear().range([height - margin.top - margin.bottom, 0]);
+
+
+        // Variables globales pour les composants réutilisables
+        let MainLine;
+        let RightLine;
+        let xAxis;
+        let yAxisLeft;
+        let yAxisRight;
+
+        // Add a clipPathArea: everything out of this area won't be drawn
+
+
+        // Chargement des données
+        d3.csv("/static/test.csv").then(data => {
+            // Nettoyage des données
+            const parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S");
+            
+            data.forEach(d => {
+                d.Datetime = parseTime(d.Datetime.substring(0, 19));
+                d.Open = +d.Open;
+                d.High = +d.High;
+                d.Low = +d.Low;
+                d.Close = +d.Close;
+                d.Volume = +d.Volume;
+            });
+            console.log(data);
+
+            // Mise à jour des échelles
+            xScale.domain(d3.extent(data, d => d.Datetime));
+            xScale2.domain(xScale.domain());
+            yScaleLeft.domain([d3.min(data, d => d.Low), d3.max(data, d => d.High)]);
+            yScaleRight.domain([0, d3.max(data, d => d.Volume)]); // Domaine pour les Volume
+
+            // Création de la ligne
+            const MainLine = d3.line()
+                .x(d => xScale(d.Datetime))
+                .y(d => yScaleLeft(d.Close))
+                .curve(d3.curveMonotoneX);
+            // Courbe des Volume
+            const RightLine = d3.line()
+                .x(d => xScale(d.Datetime))
+                .y(d => yScaleRight(d.Volume))
+                .curve(d3.curveMonotoneX);
+
+                // Ajouter un groupe pour les courbes et appliquer le clipPath
+                const curves = svg.append("g")
+                    .attr("clip-path", "url(#clip)");
+
+                curves.append("path")
+                    .datum(data)
+                    .attr("class", "main-line")
+                    .attr("d", MainLine)
+                    .style("opacity", 0)
+                    .transition()
+                    .duration(1000)
+                    .style("opacity", 1);
+                curves.append("path")
+                    .datum(data)
+                    .attr("class", "right-line")
+                    .attr("d", RightLine)
+                    .style("opacity", 0)
+                    .transition()
+                    .duration(1000)
+                    .style("opacity", 1);
+
+            // Création des axes
+            xAxis = d3.axisBottom(xScale);
+            yAxisLeft = d3.axisLeft(yScaleLeft);
+            yAxisRight = d3.axisRight(yScaleRight);
+
+            // Gestion des axes
+            svg.append("g") 
+                .attr("class", "axis axis--x")
+                .attr("transform", `translate(0,${height - margin.top - margin.bottom})`)
+                .call(xAxis);
+
+            svg.append("g") // Axe de droite
+                .attr("class", "axis axis-right")
+                .attr("transform", `translate(${width - margin.left - margin.right},0)`)
+                .call(yAxisRight);
+
+            svg.append("g")// Axe de gauche
+                .attr("class", "axis axis-left")
+                .call(yAxisLeft);
+
+                        // Création du groupe pour le curseur chandelle
+        const focus = svg.append("g")
+            .attr("class", "focus")
+            .style("display", "none");
+
+        // Éléments graphiques pour la chandelle
+        focus.append("line")
+            .attr("class", "open-line")
+            .attr("stroke", "#00f");
+        focus.append("line")
+            .attr("class", "close-line")
+            .attr("stroke", "#f00");
+        focus.append("line")
+            .attr("class", "candlestick-cursor");
+        focus.append("line")
+            .attr("class", "vertical")
+            .attr("stroke", "#00f");
+            
+        // Textes OHLC
+        focus.append("text").attr("class", "ohlc-text vertical-text");
+        focus.append("text").attr("class", "ohlc-text high-text");
+        focus.append("text").attr("class", "ohlc-text low-text");
+        focus.append("text").attr("class", "ohlc-text open-text");
+        focus.append("text").attr("class", "ohlc-text close-text");
+
+            // Interaction de survol
+            svg.append("rect")
+                .attr("class", "overlay")
+                .attr("width", width - margin.left - margin.right)
+                .attr("height", height - margin.top - margin.bottom)
+                .on("mouseover", () => focus.style("display", null))
+                .on("mouseout", () => focus.style("display", "none"))
+                .on("mousemove", (event) => {
+                    const bisect = d3.bisector(d => d.Datetime).left;
+                    const x0 = xScale.invert(d3.pointer(event)[0]);
+                    const i = bisect(data, x0, 1);
+                    const d = data[i];
+
+                    // Positionnement vertical
+                    focus.attr("transform", `translate(${xScale(d.Datetime)},0)`);
+
+                    // Mise à jour de la chandelle
+                    focus.select(".candlestick-cursor")
+                        .attr("y1", yScaleLeft(d.High))
+                        .attr("y2", yScaleLeft(d.Low))
+                        .attr("stroke", d.Close > d.Open ? "#4CAF50" : "#f44336");
+                    // Mise à jour de la cverticale
+                    focus.select(".vertical")
+                        .attr("x1", 0)
+                        .attr("x2", 0)
+                        .attr("y1", d3.max([yScaleLeft(d.High),yScaleRight(d.Volume)])-2)
+                        .attr("y2", d3.min([yScaleLeft(d.Low),yScaleRight(d.Volume)])+2);
+
+                    // Lignes Open/Close
+                    focus.select(".open-line")
+                        .attr("x1", -5)
+                        .attr("x2", 0)
+                        .attr("y1", yScaleLeft(d.Open))
+                        .attr("y2", yScaleLeft(d.Open));
+
+                    focus.select(".close-line")
+                        .attr("x1", 0)
+                        .attr("x2", 5)
+                        .attr("y1", yScaleLeft(d.Close))
+                        .attr("y2", yScaleLeft(d.Close));
+
+                    // Textes
+                    var DatetimeStr=d3.timeFormat("%Y-%m-%d %H:%M:%S")(d.Datetime)
+
+                    focus.select(".vertical-text")
+                        .attr("text-anchor", "middle")
+                        .attr("x", 0)
+                        .attr("y", height - margin.top - margin.bottom + 7)
+                        .text(DatetimeStr);
+                    
+                    focus.select(".high-text")
+                        .attr("text-anchor", "middle")
+                        .attr("x", 0)
+                        .attr("y", yScaleLeft(d.High) - 5)
+                        .text(`${d.High.toFixed(2)}`);
+
+                    focus.select(".low-text")
+                        .attr("text-anchor", "middle")
+                        .attr("x", 0)
+                        .attr("y", yScaleLeft(d.Low) + 15)
+                        .text(`${d.Low.toFixed(2)}`);
+
+                    focus.select(".open-text")
+                        .attr("text-anchor", "end")
+                        .attr("x", -5)
+                        .attr("y", yScaleLeft(d.Open) + 5)
+                        .text(`${d.Open.toFixed(2)}`);
+
+                    focus.select(".close-text")
+                        .attr("text-anchor", "start")
+                        .attr("x", 5)
+                        .attr("y", yScaleLeft(d.Close) + 5)
+                        .text(`${d.Close.toFixed(2)}`);
+                });
+
+
+            function updateChart(selectedSeries) {
+                // Mise à jour de l'échelle Y
+                yScaleLeft.domain([
+                    d3.min(data, d => d.Low),
+                    d3.max(data, d => d.High)
+                ]);
+
+                // Mise à jour de la ligne
+                MainLine.y(d => yScaleLeft(d[selectedSeries]));
+                
+                // Transition pour la courbe
+                svg.selectAll(".main-line")
+                    .transition()
+                    .duration(500)
+                    .attr("d", MainLine);
+                
+                // Mise à jour de l'axe Y
+                svg.select(".axis--y")
+                    .transition()
+                    .duration(500)
+                    .call(yAxis.scale(yScaleLeft));
+            }
+            
+            // Gestion du changement de série
+            d3.select("#series-select")
+                .on("change", function() {
+                    const selectedSeries = this.value;
+                    updateChart(selectedSeries);
+                });
+
+
+            // Gestion du zoom
+            const zoom = d3.zoom()
+                .scaleExtent([1, 1000])
+                .on("zoom", (event) => {
+                    const transform = event.transform;
+                    xScale.domain(transform.rescaleX(xScale2).domain());
+
+                    // Filtrer les données visibles
+                    const visibleData = data.filter(d => {
+                        const xValue = xScale(d.Datetime);
+                        return xValue >= 0 && xValue <= width - margin.left - margin.right;
+                    });
+
+                    // Mettre à jour l'échelle Y en fonction des données visibles
+                    yScaleLeft.domain([
+                        d3.min(visibleData, d => d.Low),
+                        d3.max(visibleData, d => d.High)
+                    ]);
+
+                    // Mise à jour des courbes
+                    svg.select(".main-line").attr("d", MainLine.x(d => xScale(d.Datetime)));
+                    svg.select(".right-line").attr("d", RightLine.x(d => xScale(d.Datetime)));
+
+                    // Mise à jour des axes
+                    svg.select(".axis--x").call(d3.axisBottom(xScale));
+                    svg.select(".axis-left").call(d3.axisLeft(yScaleLeft));
+                });
+
+
+            svg.call(zoom);
+        });
+    </script>
+</body>
+</html>
