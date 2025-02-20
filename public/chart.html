@@ -10,14 +10,16 @@
         .main-line { 
             fill: none;
             stroke: steelblue; 
-            stroke-width: 1.5;
-            fill: rgb(105, 179, 162);
-            fill-opacity: 0.3;
+            stroke-width: 1;
+            fill: steelblue;
+            fill-opacity: 0.2;
         }
         .right-line {
             fill: none;
             stroke: #ff9900;
-            stroke-width: 1.5;
+            stroke-width: 1;
+            fill: #ff9900;
+            fill-opacity: 0.2;
         }
         .open-line {
             stroke: #222;
@@ -117,7 +119,7 @@
                 d.Close = +d.Close;
                 d.Volume = +d.Volume;
             });
-            console.log(data);
+            // console.log(data);
 
             // Mise à jour des échelles
             xScale.domain(d3.extent(data, d => d.Datetime));
@@ -126,15 +128,16 @@
             yScaleRight.domain([0, d3.max(data, d => d.Volume)]); // Domaine pour les Volume
 
             // Création de la ligne
-            const MainLine = d3.area()
+            const MainLine = d3.area() // d3.line()
                 .x(d => xScale(d.Datetime))
                 .y0(d => yScaleLeft(d.Close))
-                .y1(d => 555)
+                .y1(d => height)
                 .curve(d3.curveMonotoneX);
             // Courbe des Volume
-            const RightLine = d3.line()
+            const RightLine = d3.area() // d3.line()
                 .x(d => xScale(d.Datetime))
-                .y(d => yScaleRight(d.Volume))
+                .y0(d => yScaleRight(d.Volume))
+                .y1(d => height)
                 .curve(d3.curveMonotoneX);
 
                 // Ajouter un groupe pour les courbes et appliquer le clipPath
@@ -147,7 +150,7 @@
                     .attr("d", MainLine)
                     .style("opacity", 0)
                     .transition()
-                    .duration(1000)
+                    .duration(500)
                     .style("opacity", 1);
                 curves.append("path")
                     .datum(data)
@@ -155,7 +158,7 @@
                     .attr("d", RightLine)
                     .style("opacity", 0)
                     .transition()
-                    .duration(1000)
+                    .duration(500)
                     .style("opacity", 1);
 
             // Création des axes
@@ -181,7 +184,12 @@
                         // Création du groupe pour le curseur chandelle
         const focus = svg.append("g")
             .attr("class", "focus")
-            .style("display", "none");
+            .style("display", "none")
+
+        focus.style("opacity", 0)
+            .transition()
+            .duration(500)
+            .style("opacity", 1);
 
         // Éléments graphiques pour la chandelle
         focus.append("line")
@@ -288,11 +296,6 @@
 
 
             function updateChart(selectedSeries) {
-                // Mise à jour de l'échelle Y
-                yScaleLeft.domain([
-                    d3.min(data, d => d.Low),
-                    d3.max(data, d => d.High)
-                ]);
 
                 // Mise à jour de la ligne
                 MainLine.y0(d => yScaleLeft(d[selectedSeries]));
