@@ -27,13 +27,6 @@
             stroke: #aaa;
             stroke-width: 1px;
         }
-        .vertical-text {
-            stroke:#FFF;
-            stroke-width:0.5em;
-            fill:black;
-            paint-order:stroke;
-            stroke-linejoin:round
-        }
         .close-line {
             stroke: #222;
             stroke-width: 1px;
@@ -111,9 +104,6 @@
         let yAxisLeft;
         let yAxisRight;
 
-        // Add a clipPathArea: everything out of this area won't be drawn
-
-
         // Chargement des données
         d3.csv("/static/test.csv").then(data => {
             // Nettoyage des données
@@ -136,9 +126,10 @@
             yScaleRight.domain([0, d3.max(data, d => d.Volume)]); // Domaine pour les Volume
 
             // Création de la ligne
-            const MainLine = d3.line()
+            const MainLine = d3.area()
                 .x(d => xScale(d.Datetime))
-                .y(d => yScaleLeft(d.Close))
+                .y0(d => yScaleLeft(d.Close))
+                .y1(d => 555)
                 .curve(d3.curveMonotoneX);
             // Courbe des Volume
             const RightLine = d3.line()
@@ -169,8 +160,8 @@
 
             // Création des axes
             xAxis = d3.axisBottom(xScale);
-            yAxisLeft = d3.axisLeft(yScaleLeft);
-            yAxisRight = d3.axisRight(yScaleRight);
+            yAxisLeft = d3.axisLeft(yScaleLeft).tickSize(2);
+            yAxisRight = d3.axisRight(yScaleRight).tickSize(2);
 
             // Gestion des axes
             svg.append("g") 
@@ -207,6 +198,7 @@
             
         // Textes OHLC
         focus.append("text").attr("class", "ohlc-text vertical-text");
+        focus.append("text").attr("class", "ohlc-text volume-text");
         focus.append("text").attr("class", "ohlc-text high-text");
         focus.append("text").attr("class", "ohlc-text low-text");
         focus.append("text").attr("class", "ohlc-text open-text");
@@ -224,7 +216,8 @@
                     const x0 = xScale.invert(d3.pointer(event)[0]);
                     const i = bisect(data, x0, 1);
                     const d = data[i];
-
+                    
+                    focus.style("display", null)
                     // Positionnement vertical
                     focus.attr("transform", `translate(${xScale(d.Datetime)},0)`);
 
@@ -285,6 +278,12 @@
                         .attr("x", 5)
                         .attr("y", yScaleLeft(d.Close) + 5)
                         .text(`${d.Close.toFixed(2)}`);
+
+                    focus.select(".volume-text")
+                        .attr("text-anchor", "middle")
+                        .attr("x", 0)
+                        .attr("y", yScaleRight(d.Volume) - 5)
+                        .text(`${d.Volume.toFixed(2)}`);
                 });
 
 
@@ -296,7 +295,7 @@
                 ]);
 
                 // Mise à jour de la ligne
-                MainLine.y(d => yScaleLeft(d[selectedSeries]));
+                MainLine.y0(d => yScaleLeft(d[selectedSeries]));
                 
                 // Transition pour la courbe
                 svg.selectAll(".main-line")
@@ -323,6 +322,8 @@
             const zoom = d3.zoom()
                 .scaleExtent([1, 1000])
                 .on("zoom", (event) => {
+                    focus.style("display", "none");
+                    
                     const transform = event.transform;
                     xScale.domain(transform.rescaleX(xScale2).domain());
 
@@ -338,13 +339,34 @@
                         d3.max(visibleData, d => d.High)
                     ]);
 
+                    yScaleRight.domain([
+                        d3.min(visibleData, d => d.Volume),
+                        d3.max(visibleData, d => d.Volume)
+                    ]);
+
                     // Mise à jour des courbes
-                    svg.select(".main-line").attr("d", MainLine.x(d => xScale(d.Datetime)));
-                    svg.select(".right-line").attr("d", RightLine.x(d => xScale(d.Datetime)));
+                    svg.select(".main-line")
+                        .transition()
+                        .duration(250)
+                        .attr("d", MainLine.x(d => xScale(d.Datetime)));
+                    svg.select(".right-line")
+                        .transition()
+                        .duration(250)
+                        .attr("d", RightLine.x(d => xScale(d.Datetime)));
 
                     // Mise à jour des axes
-                    svg.select(".axis--x").call(d3.axisBottom(xScale));
-                    svg.select(".axis-left").call(d3.axisLeft(yScaleLeft));
+                    svg.select(".axis--x")
+                        .transition()
+                        .duration(250)
+                        .call(d3.axisBottom(xScale));
+                    svg.select(".axis-left")
+                        .transition()
+                        .duration(250)
+                        .call(d3.axisLeft(yScaleLeft));
+                    svg.select(".axis-right")
+                        .transition()
+                        .duration(250)
+                        .call(d3.axisRight(yScaleRight));
                 });
 
 
