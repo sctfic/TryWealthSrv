@@ -56,6 +56,15 @@
         .axis text {
             font-size: 9px;
         }
+        .regression-line {
+            stroke: red;
+            stroke-width: 1.5px;
+            fill: none;
+        }
+        .r2-text {
+            font-size: 9px;
+            fill: red;
+        }
     </style>
 </head>
 <body>
@@ -89,9 +98,9 @@
         const fileName = params.file || 'test.csv'; // Utiliser 'test.csv' par défaut si aucun fichier n'est spécifié
 
         // Configuration initiale
-        const width = window.innerWidth * 0.9;
+        const width = window.innerWidth;
         const height = 500;
-        const margin = { top: 10, right: 30, bottom: 20, left: 30 };
+        const margin = { top: 5, right: 40, bottom: 20, left: 25 };
 
         // Création du conteneur SVG
         const svg = d3.select("#chart")
@@ -133,7 +142,7 @@
                 d.High = +d.High;
                 d.Low = +d.Low;
                 d.Close = +d.Close;
-                d.Close_d = +d.Close_d;
+                d.right_value = +d.Close_d;
             });
             console.log(data);
 
@@ -142,20 +151,20 @@
             xScale.domain(xDomain);
             xScale2.domain(xDomain);
             yScaleLeft.domain([d3.min(data, d => d.Low), d3.max(data, d => d.High)]);
-            yScaleRight.domain([0, d3.max(data, d => d.Close_d)]); // Domaine pour les Close_d
+            yScaleRight.domain([d3.min(data, d => d.right_value), d3.max(data, d => d.right_value)]); // Domaine pour les right_value
 
             // Création de la ligne
             const MainLine = d3.area() // d3.line()
                 .x(d => xScale(d.Datetime))
                 .y0(d => yScaleLeft(d.Close))
                 .y1(d => height)
-                .curve(d3.curveMonotoneX);
-            // Courbe des Close_d
+                .curve(d3.curveLinear); // https://d3js.org/d3-shape/curve
+            // Courbe des right_value
             const RightLine = d3.area() // d3.line()
                 .x(d => xScale(d.Datetime))
-                .y0(d => yScaleRight(d.Close_d))
+                .y0(d => yScaleRight(d.right_value))
                 .y1(d => height)
-                .curve(d3.curveMonotoneX);
+                .curve(d3.curveLinear); // curveMonotoneX, curveBumpX
 
                 // Ajouter un groupe pour les courbes et appliquer le clipPath
                 const curves = svg.append("g")
@@ -198,7 +207,7 @@
                 .attr("class", "axis axis-left")
                 .call(yAxisLeft);
 
-                        // Création du groupe pour le curseur chandelle
+        // Création du groupe pour le curseur chandelle
         const focus = svg.append("g")
             .attr("class", "focus")
             .style("display", "none")
@@ -220,7 +229,11 @@
         focus.append("line")
             .attr("class", "vertical")
             .attr("stroke", "#00f");
-            
+        // Éléments graphiques pour la régression linéaire
+        const regressionLine = focus.append("line")
+            .attr("class", "regression-line")
+            .style("display", "none");
+        
         // Textes OHLC
         focus.append("text").attr("class", "ohlc-text vertical-text");
         focus.append("text").attr("class", "ohlc-text rightchart-text");
@@ -229,13 +242,25 @@
         focus.append("text").attr("class", "ohlc-text open-text");
         focus.append("text").attr("class", "ohlc-text close-text");
 
+        const r2Text = focus.append("text")
+            .attr("class", "ohlc-text r2-text")
+            .style("display", "none");
+
             // Interaction de survol
             svg.append("rect")
                 .attr("class", "overlay")
                 .attr("width", width - margin.left - margin.right)
                 .attr("height", height - margin.top - margin.bottom)
-                .on("mouseover", () => focus.style("display", null))
-                .on("mouseout", () => focus.style("display", "none"))
+                .on("mouseover", () => {
+                    focus.style("display", null);
+                    regressionLine.style("display", null);
+                    r2Text.style("display", null);
+                })
+                .on("mouseout", () => {
+                    focus.style("display", "none");
+                    regressionLine.style("display", "none");
+                    r2Text.style("display", "none");
+                })
                 .on("mousemove", (event) => {
                     const bisect = d3.bisector(d => d.Datetime).left;
                     const x0 = xScale.invert(d3.pointer(event)[0]);
@@ -243,6 +268,9 @@
                     const d = data[i];
                     
                     focus.style("display", null)
+                    regressionLine.style("display", null);
+                    r2Text.style("display", null);
+
                     // Positionnement vertical
                     focus.attr("transform", `translate(${xScale(d.Datetime)},0)`);
 
@@ -255,8 +283,8 @@
                     focus.select(".vertical")
                         .attr("x1", 0)
                         .attr("x2", 0)
-                        .attr("y1", d3.max([yScaleLeft(d.High),yScaleRight(d.Close_d)])-2)
-                        .attr("y2", d3.min([yScaleLeft(d.Low),yScaleRight(d.Close_d)])+2);
+                        .attr("y1", d3.max([yScaleLeft(d.High),yScaleRight(d.right_value)])-2)
+                        .attr("y2", d3.min([yScaleLeft(d.Low),yScaleRight(d.right_value)])+2);
 
                     // Lignes Open/Close
                     focus.select(".open-line")
@@ -307,8 +335,51 @@
                     focus.select(".rightchart-text")
                         .attr("text-anchor", "middle")
                         .attr("x", 0)
-                        .attr("y", yScaleRight(d.Close_d) - 5)
-                        .text(`${d.Close_d.toFixed(2)}`);
+                        .attr("y", yScaleRight(d.right_value) - 5)
+                        .text(`${d.right_value.toFixed(2)}`);
+
+                    // Calcul de la régression linéaire locale
+                    const windowSize = 100; // Taille de la fenêtre pour la régression locale
+                    const start = Math.max(0, i - Math.floor(windowSize / 2));
+                    const end = Math.min(data.length, i + Math.floor(windowSize / 2));
+                    const windowData = data.slice(start, end);
+
+                    const xValues = windowData.map(d => xScale(d.Datetime));
+                    const yValues = windowData.map(d => yScaleLeft(d.Close));
+
+                    const xMean = d3.mean(xValues);
+                    const yMean = d3.mean(yValues);
+
+                    const num = d3.sum(xValues.map((x, i) => (x - xMean) * (yValues[i] - yMean)));
+                    const den = d3.sum(xValues.map(x => (x - xMean) ** 2));
+
+                    const slope = num / den;
+                    const intercept = yMean - slope * xMean;
+
+                    const r2 = (num ** 2) / (den * d3.sum(yValues.map(y => (y - yMean) ** 2)));
+
+                    // Mise à jour de la ligne de régression
+                    const x1 = xValues[0];
+                    const y1 = slope * x1 + intercept;
+                    const x2 = xValues[xValues.length - 1];
+                    const y2 = slope * x2 + intercept;
+
+                    regressionLine
+                        .attr("x1", x1 - xScale(d.Datetime))
+                        .attr("y1", y1)
+                        .attr("x2", x2 - xScale(d.Datetime))
+                        .attr("y2", y2);
+
+                    // Calcul des coordonnées du milieu de la ligne de régression
+                    const midX = (x1 + x2) / 2 - xScale(d.Datetime);
+                    const midY = (y1 + y2) / 2;
+
+                    // Mise à jour du texte R²
+                    r2Text
+                        .attr("text-anchor", "start")
+                        .attr("x", midX+15)
+                        .attr("y", midY)
+                        .text(`R²: ${r2.toFixed(2)}`);
                 });
 
 
@@ -345,6 +416,8 @@
                 .extent([[0, 0], [width - margin.left - margin.right, height - margin.top - margin.bottom]])
                 .on("zoom", (event) => {
                     focus.style("display", "none");
+                    regressionLine.style("display", "none");
+                    r2Text.style("display", "none");
                     
                     const transform = event.transform;
                     xScale.domain(transform.rescaleX(xScale2).domain());
@@ -362,8 +435,8 @@
                     ]);
 
                     yScaleRight.domain([
-                        d3.min(visibleData, d => d.Close_d),
-                        d3.max(visibleData, d => d.Close_d)
+                        d3.min(visibleData, d => d.right_value),
+                        d3.max(visibleData, d => d.right_value)
                     ]);
 
                     // Mise à jour des courbes
