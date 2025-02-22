@@ -3,68 +3,8 @@
 <head>
     <meta charset="utf-8">
     <title>Visualisation de données boursières</title>
-    <style>
-        .container { margin: 2px; }
-        .axis path { stroke: #555; }
-        /* .grid line { stroke: #eee; } */
-        .main-line { 
-            fill: none;
-            stroke: steelblue; 
-            stroke-width: 1;
-            fill: steelblue;
-            fill-opacity: 0.2;
-        }
-        .right-line {
-            fill: none;
-            stroke: #ff9900;
-            stroke-width: 1;
-            fill: #ff9900;
-            fill-opacity: 0.2;
-        }
-        .open-line {
-            stroke: #222;
-            stroke-width: 1px;
-        }
-        .vertical {
-            stroke: #aaa;
-            stroke-width: 1px;
-        }
-        .close-line {
-            stroke: #222;
-            stroke-width: 1px;
-        }
-        .candlestick-cursor { 
-            stroke-width: 2px;
-            pointer-events: none;
-        }
-        .overlay { fill: none; pointer-events: all; }
-        .ohlc-text { 
-            font-size: 7px;
-            fill: #222;
-            font-family: Arial;
-            stroke:#FFF;
-            stroke-width:0.3em;
-            paint-order:stroke;
-            stroke-linejoin:round
-        }
-        .axis-right text {
-            fill: #ff9900;
-        }
-        .axis-left text {
-            fill: steelblue;
-        }
-        .axis text {
-            font-size: 9px;
-        }
-        .regression-line {
-            stroke: red;
-            stroke-width: 1.5px;
-            fill: none;
-        }
-        .r2-text {
-            font-size: 9px;
-            fill: red;
-        }
+    <style href="">
+        @import url('/static/chart.css');
     </style>
 </head>
 <body>
@@ -76,6 +16,10 @@
             <option value="High">High</option>
             <option value="Low">Low</option>
         </select>
+        <!-- Curseur pour la longueur de la moyenne mobile et de la régression linéaire locale -->
+        <label for="length-slider">Plage:</label>
+        <input type="range" id="length-slider" name="length-slider" min="2" max="500" value="11">
+        <span id="length-value">11</span>
         <div id="chart"></div>
     </div>
 
@@ -95,11 +39,13 @@
 
         // Récupérer le nom du fichier à partir des paramètres de requête
         const params = getQueryParams();
+        console.log(params);
         const fileName = params.file || 'test.csv'; // Utiliser 'test.csv' par défaut si aucun fichier n'est spécifié
-
+        const secondCurve = params.secondCurve || 'Close_d'; // Nouveau paramètre pour la courbe secondaire
+        
         // Configuration initiale
         const width = window.innerWidth;
-        const height = 500;
+        const height = 300;
         const margin = { top: 5, right: 40, bottom: 20, left: 25 };
 
         // Création du conteneur SVG
@@ -126,9 +72,23 @@
         // Variables globales pour les composants réutilisables
         let MainLine;
         let RightLine;
+        let MovingAverageLine;
         let xAxis;
         let yAxisLeft;
         let yAxisRight;
+
+        // Fonction pour calculer la moyenne mobile
+        function movingAverage(data) {
+            const length = document.getElementById('length-slider').value;
+            document.getElementById('length-value').textContent = length;
+            return data.map((d, i, arr) => {
+                const start = Math.max(0, i - Math.floor(length / 2));
+                const end = Math.min(arr.length, i + Math.floor(length / 2) + 1);
+                const windowData = arr.slice(start, end);
+                const sum = windowData.reduce((acc, val) => acc + val.Close, 0);
+                return { Datetime: d.Datetime, Average: sum / windowData.length };
+            });
+        }
 
         // Chargement des données
         d3.csv(`/static/${fileName}`).then(data => {
@@ -136,22 +96,33 @@
             const parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S");
             console.log(data);
             
+            var SecondCurve = 'Close_d';
+            
             data.forEach(d => {
                 d.Datetime = parseTime(d.Datetime.substring(0, 19));
                 d.Open = +d.Open;
                 d.High = +d.High;
                 d.Low = +d.Low;
                 d.Close = +d.Close;
-                d.right_value = +d.Close_d;
+                d.right_value = +d[SecondCurve]; // = +d.Close_d;
             });
             console.log(data);
+
+            // Calcul de la moyenne mobile
+            var movingAverageData = movingAverage(data);
 
             // Mise à jour des échelles
             const xDomain = d3.extent(data, d => d.Datetime);
             xScale.domain(xDomain);
             xScale2.domain(xDomain);
-            yScaleLeft.domain([d3.min(data, d => d.Low), d3.max(data, d => d.High)]);
-            yScaleRight.domain([d3.min(data, d => d.right_value), d3.max(data, d => d.right_value)]); // Domaine pour les right_value
+            yScaleLeft.domain([
+                d3.min(data, d => d.Low),
+                d3.max(data, d => d.High)
+            ]);
+            yScaleRight.domain([
+                d3.min(data, d => d.right_value),
+                d3.max(data, d => d.right_value)
+            ]); // Domaine pour les right_value
 
             // Création de la ligne
             const MainLine = d3.area() // d3.line()
@@ -159,6 +130,12 @@
                 .y0(d => yScaleLeft(d.Close))
                 .y1(d => height)
                 .curve(d3.curveLinear); // https://d3js.org/d3-shape/curve
+            // Courbe de moyenne mobile
+            const MovingAverageLine = d3.line()
+                .x(d => xScale(d.Datetime))
+                .y(d => yScaleLeft(d.Average))
+                .curve(d3.curveBasis);
+
             // Courbe des right_value
             const RightLine = d3.area() // d3.line()
                 .x(d => xScale(d.Datetime))
@@ -166,26 +143,37 @@
                 .y1(d => height)
                 .curve(d3.curveLinear); // curveMonotoneX, curveBumpX
 
-                // Ajouter un groupe pour les courbes et appliquer le clipPath
-                const curves = svg.append("g")
-                    .attr("clip-path", "url(#clip)");
+            // Ajouter un groupe pour les courbes et appliquer le clipPath
+            const curves = svg.append("g")
+                .attr("clip-path", "url(#clip)");
 
-                curves.append("path")
-                    .datum(data)
-                    .attr("class", "main-line")
-                    .attr("d", MainLine)
-                    .style("opacity", 0)
-                    .transition()
-                    .duration(500)
-                    .style("opacity", 1);
-                curves.append("path")
-                    .datum(data)
-                    .attr("class", "right-line")
-                    .attr("d", RightLine)
-                    .style("opacity", 0)
-                    .transition()
-                    .duration(500)
-                    .style("opacity", 1);
+
+            curves.append("path") // arriere plan
+                .datum(data)
+                .attr("class", "right-line")
+                .attr("d", RightLine)
+                .style("opacity", 0)
+                .transition()
+                .duration(500)
+                .style("opacity", 1);
+
+            curves.append("path")
+                .datum(movingAverageData)
+                .attr("class", "moving-average-line")
+                .attr("d", MovingAverageLine)
+                .style("opacity", 0)
+                .transition()
+                .duration(500)
+                .style("opacity", 1);
+            curves.append("path") // devant, au premier
+                .datum(data)
+                .attr("class", "main-line")
+                .attr("d", MainLine)
+                .style("opacity", 0)
+                .transition()
+                .duration(500)
+                .style("opacity", 1);
+
 
             // Création des axes
             xAxis = d3.axisBottom(xScale);
@@ -231,8 +219,7 @@
             .attr("stroke", "#00f");
         // Éléments graphiques pour la régression linéaire
         const regressionLine = focus.append("line")
-            .attr("class", "regression-line")
-            .style("display", "none");
+            .attr("class", "regression-line");
         
         // Textes OHLC
         focus.append("text").attr("class", "ohlc-text vertical-text");
@@ -243,8 +230,7 @@
         focus.append("text").attr("class", "ohlc-text close-text");
 
         const r2Text = focus.append("text")
-            .attr("class", "ohlc-text r2-text")
-            .style("display", "none");
+            .attr("class", "ohlc-text r2-text");
 
             // Interaction de survol
             svg.append("rect")
@@ -253,13 +239,9 @@
                 .attr("height", height - margin.top - margin.bottom)
                 .on("mouseover", () => {
                     focus.style("display", null);
-                    regressionLine.style("display", null);
-                    r2Text.style("display", null);
                 })
                 .on("mouseout", () => {
                     focus.style("display", "none");
-                    regressionLine.style("display", "none");
-                    r2Text.style("display", "none");
                 })
                 .on("mousemove", (event) => {
                     const bisect = d3.bisector(d => d.Datetime).left;
@@ -268,8 +250,6 @@
                     const d = data[i];
                     
                     focus.style("display", null)
-                    regressionLine.style("display", null);
-                    r2Text.style("display", null);
 
                     // Positionnement vertical
                     focus.attr("transform", `translate(${xScale(d.Datetime)},0)`);
@@ -323,13 +303,13 @@
                     focus.select(".open-text")
                         .attr("text-anchor", "end")
                         .attr("x", -5)
-                        .attr("y", yScaleLeft(d.Open) + 5)
+                        .attr("y", yScaleLeft(d.Open) + 2)
                         .text(`${d.Open.toFixed(2)}`);
 
                     focus.select(".close-text")
                         .attr("text-anchor", "start")
                         .attr("x", 5)
-                        .attr("y", yScaleLeft(d.Close) + 5)
+                        .attr("y", yScaleLeft(d.Close) + 2)
                         .text(`${d.Close.toFixed(2)}`);
 
                     focus.select(".rightchart-text")
@@ -339,7 +319,7 @@
                         .text(`${d.right_value.toFixed(2)}`);
 
                     // Calcul de la régression linéaire locale
-                    const windowSize = 100; // Taille de la fenêtre pour la régression locale
+                    const windowSize = document.getElementById('length-slider').value; // Taille de la fenêtre pour la régression locale
                     const start = Math.max(0, i - Math.floor(windowSize / 2));
                     const end = Math.min(data.length, i + Math.floor(windowSize / 2));
                     const windowData = data.slice(start, end);
@@ -371,19 +351,32 @@
                         .attr("y2", y2);
 
                     // Calcul des coordonnées du milieu de la ligne de régression
-                    const midX = (x1 + x2) / 2 - xScale(d.Datetime);
-                    const midY = (y1 + y2) / 2;
+                    // const midX = (x1 + x2) / 2 - xScale(d.Datetime);
+                    // const midY = (y1 + y2) / 2;
 
                     // Mise à jour du texte R²
                     r2Text
                         .attr("text-anchor", "start")
-                        .attr("x", midX+15)
-                        .attr("y", midY)
-                        .text(`R²: ${r2.toFixed(2)}`);
+                        .attr("x", x2 - xScale(d.Datetime) +2)// midX + 15)
+                        .attr("y", y2 + 4) // midY)
+                        .text(`R² ${r2.toFixed(2)}`);
                 });
 
 
-            function updateChart(selectedSeries) {
+            function updateChart() {
+                // Récupérer la série sélectionnée
+                const selectedSeries = document.getElementById('series-select').value;
+                
+                // Mise à jour de la moyenne mobile
+                const movingAverageData = movingAverage(data);
+
+                // Mise à jour de la ligne de moyenne mobile
+                svg.select(".moving-average-line")
+                    .datum(movingAverageData)
+                    .transition()
+                    .duration(500)
+                    .attr("d", MovingAverageLine);
+
 
                 // Mise à jour de la ligne
                 MainLine.y0(d => yScaleLeft(d[selectedSeries]));
@@ -400,12 +393,15 @@
                     .duration(500)
                     .call(yAxis.scale(yScaleLeft));
             }
-            
+            // Écouteur d'événement pour le curseur
+            d3.select("#length-slider")
+                .on('input', function() {
+                    updateChart();
+                });
             // Gestion du changement de série
             d3.select("#series-select")
                 .on("change", function() {
-                    const selectedSeries = this.value;
-                    updateChart(selectedSeries);
+                    updateChart();
                 });
 
 
@@ -416,8 +412,6 @@
                 .extent([[0, 0], [width - margin.left - margin.right, height - margin.top - margin.bottom]])
                 .on("zoom", (event) => {
                     focus.style("display", "none");
-                    regressionLine.style("display", "none");
-                    r2Text.style("display", "none");
                     
                     const transform = event.transform;
                     xScale.domain(transform.rescaleX(xScale2).domain());
@@ -448,6 +442,10 @@
                         .transition()
                         .duration(250)
                         .attr("d", RightLine.x(d => xScale(d.Datetime)));
+                    svg.select(".moving-average-line")
+                        .transition()
+                        .duration(250)
+                        .attr("d", MovingAverageLine.x(d => xScale(d.Datetime)));
 
                     // Mise à jour des axes
                     svg.select(".axis--x")
