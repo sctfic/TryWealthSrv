@@ -3,10 +3,8 @@
 <head>
     <meta charset="utf-8">
     <title>Visualisation de données boursières</title>
-    <style href="">
-        @import url('/static/chart.css');
-    </style>
-</head>
+    <link rel="stylesheet" href="chart.css">
+    </head>
 <body>
     <div class="container">
         <!-- Ajout du sélecteur de série -->
@@ -18,12 +16,12 @@
         </select>
         <!-- Curseur pour la longueur de la moyenne mobile et de la régression linéaire locale -->
         <label for="length-slider">Plage:</label>
-        <input type="range" id="length-slider" name="length-slider" min="2" max="500" value="11">
-        <span id="length-value">11</span>
+        <input type="range" id="length-slider" name="length-slider" min="2" max="500" value="32">
+        <span id="length-value">32</span>
         <div id="chart"></div>
     </div>
 
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="d3.v7.min.js"></script>
     <script>
         // Fonction pour obtenir les paramètres de requête de l'URL
         function getQueryParams() {
@@ -40,7 +38,7 @@
         // Récupérer le nom du fichier à partir des paramètres de requête
         const params = getQueryParams();
         console.log(params);
-        const fileName = params.file || 'test.csv'; // Utiliser 'test.csv' par défaut si aucun fichier n'est spécifié
+        const fileName = params.file || 'AAPL.csv'; // Utiliser 'test.csv' par défaut si aucun fichier n'est spécifié
         const secondCurve = params.secondCurve || 'Close_d'; // Nouveau paramètre pour la courbe secondaire
         
         // Configuration initiale
@@ -91,20 +89,18 @@
         }
 
         // Chargement des données
-        d3.csv(`/static/${fileName}`).then(data => {
+        d3.csv(`${fileName}`).then(data => {
             // Nettoyage des données
             const parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S");
             console.log(data);
             
-            var SecondCurve = 'Close_d';
-            
             data.forEach(d => {
-                d.Datetime = parseTime(d.Datetime.substring(0, 19));
+                d.Datetime = parseTime(d.Datetime) //.substring(0, 19));
                 d.Open = +d.Open;
                 d.High = +d.High;
                 d.Low = +d.Low;
                 d.Close = +d.Close;
-                d.right_value = +d[SecondCurve]; // = +d.Close_d;
+                d.right_value = +d[secondCurve]; // = +d.Close_d;
             });
             console.log(data);
 
