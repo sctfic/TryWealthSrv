@@ -14,6 +14,10 @@
             <option value="High">High</option>
             <option value="Low">Low</option>
         </select>
+        <!-- Ajout du sélecteur pour secondCurve -->
+        <select id="second-curve-select" class="series-selector">
+            <!-- Options seront ajoutées dynamiquement -->
+        </select>
         <!-- Curseur pour la longueur de la moyenne mobile et de la régression linéaire locale -->
         <label for="length-slider">Plage:</label>
         <input type="range" id="length-slider" name="length-slider" min="2" max="500" value="32">
@@ -66,6 +70,7 @@
         const xScale2 = xScale.copy();
         const yScaleLeft = d3.scaleLinear().range([height - margin.top - margin.bottom, 0]);
         const yScaleRight = d3.scaleLinear().range([height - margin.top - margin.bottom, 0]);
+        const yScaleCumul = d3.scaleLinear().range([height - margin.top - margin.bottom, 0]);
 
         // Variables globales pour les composants réutilisables
         let MainLine;
@@ -88,21 +93,52 @@
             });
         }
 
+        // Fonction pour mettre à jour les échelles
+        function updateScales(data) {
+            yScaleLeft.domain([
+                d3.min(data, d => d.Low),
+                d3.max(data, d => d.High)
+            ]);
+            yScaleRight.domain([
+                d3.min(data, d => d.right_value),
+                d3.max(data, d => d.right_value)
+            ]);
+            yScaleCumul.domain([
+                d3.min(data, d => d.right_cumul),
+                d3.max(data, d => d.right_cumul)
+            ]);
+        }
+
         // Chargement des données
         d3.csv(`${fileName}`).then(data => {
             // Nettoyage des données
             const parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S");
-            console.log(data);
             
+            let cumulativeSum = 0;
             data.forEach(d => {
-                d.Datetime = parseTime(d.Datetime) //.substring(0, 19));
+                d.Datetime = parseTime(d.Datetime);
                 d.Open = +d.Open;
                 d.High = +d.High;
                 d.Low = +d.Low;
                 d.Close = +d.Close;
-                d.right_value = +d[secondCurve]; // = +d.Close_d;
+                d.right_value = +d[secondCurve];
+                cumulativeSum += +d[secondCurve];
+                d.right_cumul = cumulativeSum;
             });
+
             console.log(data);
+
+            // Remplir le menu déroulant pour secondCurve
+            const secondCurveSelect = document.getElementById('second-curve-select');
+            const keys = Object.keys(data[0]);
+            keys.forEach(key => {
+                if (key !== 'Datetime' && key !== 'Open' && key !== 'High' && key !== 'Low' && key !== 'Close' && key !== 'right_value' && key !== 'right_cumul') {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = key;
+                    secondCurveSelect.appendChild(option);
+                }
+            });
 
             // Calcul de la moyenne mobile
             var movingAverageData = movingAverage(data);
@@ -111,21 +147,15 @@
             const xDomain = d3.extent(data, d => d.Datetime);
             xScale.domain(xDomain);
             xScale2.domain(xDomain);
-            yScaleLeft.domain([
-                d3.min(data, d => d.Low),
-                d3.max(data, d => d.High)
-            ]);
-            yScaleRight.domain([
-                d3.min(data, d => d.right_value),
-                d3.max(data, d => d.right_value)
-            ]); // Domaine pour les right_value
+            updateScales(data);
 
             // Création de la ligne
             const MainLine = d3.area() // d3.line()
                 .x(d => xScale(d.Datetime))
                 .y0(d => yScaleLeft(d.Close))
-                .y1(d => height)
-                .curve(d3.curveLinear); // https://d3js.org/d3-shape/curve
+                .curve(d3.curveLinear) // https://d3js.org/d3-shape/curve
+                .y1(d => height);
+
             // Courbe de moyenne mobile
             const MovingAverageLine = d3.line()
                 .x(d => xScale(d.Datetime))
@@ -133,16 +163,23 @@
                 .curve(d3.curveBasis);
 
             // Courbe des right_value
-            const RightLine = d3.area() // d3.line()
+            const RightLine = d3.line() // d3.line()
                 .x(d => xScale(d.Datetime))
-                .y0(d => yScaleRight(d.right_value))
-                .y1(d => height)
+                .y(d => yScaleRight(d.right_value))
                 .curve(d3.curveLinear); // curveMonotoneX, curveBumpX
+                // .y1(d => height);
+
+            // Courbe des right_cumul
+            const RightCumulLine = d3.area()
+                .x(d => xScale(d.Datetime))
+                .y0(d => yScaleCumul(d.right_cumul))
+                .curve(d3.curveBasis)
+                .y1(d => height);
+
 
             // Ajouter un groupe pour les courbes et appliquer le clipPath
             const curves = svg.append("g")
                 .attr("clip-path", "url(#clip)");
-
 
             curves.append("path") // arriere plan
                 .datum(data)
@@ -161,6 +198,7 @@
                 .transition()
                 .duration(500)
                 .style("opacity", 1);
+
             curves.append("path") // devant, au premier
                 .datum(data)
                 .attr("class", "main-line")
@@ -170,63 +208,114 @@
                 .duration(500)
                 .style("opacity", 1);
 
+            // Ajouter la courbe des right_cumul
+            curves.append("path")
+                .datum(data)
+                .attr("class", "right-cumul-line")
+                .attr("d", RightCumulLine)
+                .style("opacity", 0)
+                .transition()
+                .duration(500)
+                .style("opacity", 1);
 
             // Création des axes
             xAxis = d3.axisBottom(xScale);
             yAxisLeft = d3.axisLeft(yScaleLeft).tickSize(2);
             yAxisRight = d3.axisRight(yScaleRight).tickSize(2);
+            yAxisCumul = d3.axisLeft(yScaleCumul).tickSize(2);
 
             // Gestion des axes
             svg.append("g") 
                 .attr("class", "axis axis--x")
                 .attr("transform", `translate(0,${height - margin.top - margin.bottom})`)
                 .call(xAxis);
-
+            svg.append("g")// Axe de gauche
+                .attr("class", "axis axis-left")
+                .call(yAxisLeft);
             svg.append("g") // Axe de droite
                 .attr("class", "axis axis-right")
                 .attr("transform", `translate(${width - margin.left - margin.right},0)`)
                 .call(yAxisRight);
+            svg.append("g") // Axe de droite
+                .attr("class", "axis axis-right")
+                .attr("transform", `translate(${width - margin.left - margin.right},0)`)
+                .call(yAxisCumul);
 
-            svg.append("g")// Axe de gauche
-                .attr("class", "axis axis-left")
-                .call(yAxisLeft);
+            // Fonction pour mettre à jour la courbe right_value et right_cumul
+            function updateRightCurve() {
+                const selectedCurve = document.getElementById('second-curve-select').value;
+                let cumulativeSum = 0;
+                data.forEach(d => {
+                    d.right_value = +d[selectedCurve];
+                    cumulativeSum += +d[selectedCurve];
+                    d.right_cumul = cumulativeSum;
+                });
 
-        // Création du groupe pour le curseur chandelle
-        const focus = svg.append("g")
-            .attr("class", "focus")
-            .style("display", "none")
+                updateScales(data);
 
-        focus.style("opacity", 0)
-            .transition()
-            .duration(500)
-            .style("opacity", 1);
+                svg.select(".right-line")
+                    .datum(data)
+                    .transition()
+                    .duration(500)
+                    .attr("d", RightLine);
+                svg.select(".right-cumul-line")
+                    .datum(data)
+                    .transition()
+                    .duration(500)
+                    .attr("d", RightCumulLine);
 
-        // Éléments graphiques pour la chandelle
-        focus.append("line")
-            .attr("class", "open-line")
-            .attr("stroke", "#00f");
-        focus.append("line")
-            .attr("class", "close-line")
-            .attr("stroke", "#f00");
-        focus.append("line")
-            .attr("class", "candlestick-cursor");
-        focus.append("line")
-            .attr("class", "vertical")
-            .attr("stroke", "#00f");
-        // Éléments graphiques pour la régression linéaire
-        const regressionLine = focus.append("line")
-            .attr("class", "regression-line");
-        
-        // Textes OHLC
-        focus.append("text").attr("class", "ohlc-text vertical-text");
-        focus.append("text").attr("class", "ohlc-text rightchart-text");
-        focus.append("text").attr("class", "ohlc-text high-text");
-        focus.append("text").attr("class", "ohlc-text low-text");
-        focus.append("text").attr("class", "ohlc-text open-text");
-        focus.append("text").attr("class", "ohlc-text close-text");
+                svg.select(".axis-right")
+                    .transition()
+                    .duration(500)
+                    .call(yAxisRight);
+                svg.select(".axis-right")
+                    .transition()
+                    .duration(500)
+                    .call(yAxisCumul);
+            }
 
-        const r2Text = focus.append("text")
-            .attr("class", "ohlc-text r2-text");
+            // Écouteur d'événement pour le changement de courbe secondaire
+            d3.select("#second-curve-select")
+                .on("change", function() {
+                    updateRightCurve();
+                });
+
+            // Création du groupe pour le curseur chandelle
+            const focus = svg.append("g")
+                .attr("class", "focus")
+                .style("display", "none")
+
+            focus.style("opacity", 0)
+                .transition()
+                .duration(500)
+                .style("opacity", 1);
+
+            // Éléments graphiques pour la chandelle
+            focus.append("line")
+                .attr("class", "open-line")
+                .attr("stroke", "#00f");
+            focus.append("line")
+                .attr("class", "close-line")
+                .attr("stroke", "#f00");
+            focus.append("line")
+                .attr("class", "candlestick-cursor");
+            focus.append("line")
+                .attr("class", "vertical")
+                .attr("stroke", "#00f");
+            // Éléments graphiques pour la régression linéaire
+            const regressionLine = focus.append("line")
+                .attr("class", "regression-line");
+            
+            // Textes OHLC
+            focus.append("text").attr("class", "ohlc-text vertical-text");
+            focus.append("text").attr("class", "ohlc-text rightchart-text");
+            focus.append("text").attr("class", "ohlc-text high-text");
+            focus.append("text").attr("class", "ohlc-text low-text");
+            focus.append("text").attr("class", "ohlc-text open-text");
+            focus.append("text").attr("class", "ohlc-text close-text");
+
+            const r2Text = focus.append("text")
+                .attr("class", "ohlc-text r2-text");
 
             // Interaction de survol
             svg.append("rect")
@@ -419,29 +508,25 @@
                     });
 
                     // Mettre à jour l'échelle Y en fonction des données visibles
-                    yScaleLeft.domain([
-                        d3.min(visibleData, d => d.Low),
-                        d3.max(visibleData, d => d.High)
-                    ]);
-
-                    yScaleRight.domain([
-                        d3.min(visibleData, d => d.right_value),
-                        d3.max(visibleData, d => d.right_value)
-                    ]);
+                    updateScales(visibleData);
 
                     // Mise à jour des courbes
                     svg.select(".main-line")
                         .transition()
                         .duration(250)
                         .attr("d", MainLine.x(d => xScale(d.Datetime)));
-                    svg.select(".right-line")
-                        .transition()
-                        .duration(250)
-                        .attr("d", RightLine.x(d => xScale(d.Datetime)));
                     svg.select(".moving-average-line")
                         .transition()
                         .duration(250)
                         .attr("d", MovingAverageLine.x(d => xScale(d.Datetime)));
+                    svg.select(".right-line")
+                        .transition()
+                        .duration(250)
+                        .attr("d", RightLine.x(d => xScale(d.Datetime)));
+                    svg.select(".right-cumul-line")
+                        .transition()
+                        .duration(250)
+                        .attr("d", RightCumulLine.x(d => xScale(d.Datetime)));
 
                     // Mise à jour des axes
                     svg.select(".axis--x")
@@ -456,6 +541,10 @@
                         .transition()
                         .duration(250)
                         .call(d3.axisRight(yScaleRight));
+                    svg.select(".axis-right")
+                        .transition()
+                        .duration(250)
+                        .call(d3.axisRight(yScaleCumul));
                 });
 
 

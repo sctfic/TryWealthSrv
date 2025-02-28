@@ -12,12 +12,19 @@
     fill: steelblue;
     fill-opacity: 0.2;
 }
+.right-cumul-line {
+    fill: none;
+    stroke: #764700;
+    stroke-width: 1;
+    fill: #ffc670;
+    fill-opacity: 0.2;
+}
 .right-line {
     fill: none;
     stroke: #ff9900;
     stroke-width: 1;
-    fill: #ff9900;
-    fill-opacity: 0.2;
+    /* fill: #ff9900;
+    fill-opacity: 0.2; */
 }
 .moving-average-line {
     fill: none;
